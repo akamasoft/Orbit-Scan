@@ -1,0 +1,130 @@
+.TH ORBITE-SCAN 1 "septembre 2026" "orbite-scan 1.0.2" "Outils de sécurité réseau"
+.SH NOM
+orbite-scan \- Orbite Scan, outil de supervision et de visualisation réseau
+.SH SYNOPSIS
+.B orbite-scan
+[\fB\-V\fR]
+.br
+.B orbite-scan
+.B scan
+[\fB\-t\fR \fISOUS-RÉSEAU\fR]
+[\fB\-o\fR \fIFORMAT\fR]
+[\fB\-f\fR \fICHEMIN\fR]
+[\fB\-q\fR]
+.br
+.B orbite-scan
+.B gui
+.SH DESCRIPTION
+.B orbite-scan
+combine la découverte d'hôtes par ARP, une intégration complète de nmap
+et un graphe interactif de topologie réseau en temps réel, dans une
+interface PyQt6 sombre. L'interface est en français par défaut.
+.PP
+Il s'adresse aux chercheurs en sécurité et aux administrateurs réseau
+qui ont besoin d'une visibilité rapide et détaillée sur leur
+infrastructure. L'interface graphique est lancée par défaut. Une ligne
+de commande est aussi disponible pour les scripts et l'automatisation.
+.PP
+Les privilèges root sont requis pour le scan ARP et la capture de paquets.
+.SH FONCTIONNALITÉS
+.TP
+.B Scan
+Scan ARP avec recherche du fabricant dans une base OUI IEEE locale ;
+résolution des noms par DNS inverse, NetBIOS et mDNS/Avahi ; empreinte
+d'OS d'après le TTL ; sondage des ports TCP ; requête SNMP brute
+sysDescr, sans bibliothèque externe.
+.TP
+.B Détection de rôle
+Classification automatique de chaque hôte : passerelle, routeur, point
+d'accès, commutateur, PC, Apple, mobile, Raspberry Pi, machine virtuelle
+ou inconnu.
+.TP
+.B Graphe de topologie
+Graphe hiérarchique vis.js avec cadres de sous-réseaux, liens typés,
+bascule vers la disposition Force Atlas, rafraîchissement automatique,
+libellés personnalisés, export PNG et CSV.
+.TP
+.B Intégration nmap
+Scan SYN, scan UDP, détection d'OS, version des services, scripts NSE,
+récupération de bannières (HTTP, SMB, FTP, SSH, SSL).
+.TP
+.B Surface d'attaque
+Scan nmap + vulners approfondi par hôte : ports exposés, score CVSS,
+liens directs vers la NVD, export CSV.
+.TP
+.B Analyseur de trafic
+Capture de paquets en temps réel, statistiques par appareil, couleurs
+par protocole, barre de filtre, double-clic vers le scan de ports,
+export CSV.
+.SH COMMANDES
+.TP
+.B scan
+Analyse le sous-réseau local (ou une cible indiquée) et affiche les hôtes découverts.
+.TP
+.B gui
+Lance l'interface graphique (comportement par défaut si aucune commande n'est donnée).
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-target " " \fISOUS-RÉSEAU\fR
+Sous-réseau, plage CIDR ou adresse IP cible.
+Par défaut, le sous-réseau local est détecté automatiquement.
+.TP
+.BR \-o ", " \-\-output " " \fIFORMAT\fR
+Format de sortie : \fBtable\fR (défaut), \fBjson\fR ou \fBcsv\fR.
+.TP
+.BR \-f ", " \-\-file " " \fICHEMIN\fR
+Écrit la sortie dans \fICHEMIN\fR plutôt que sur la sortie standard.
+.TP
+.BR \-q ", " \-\-quiet
+Masque les messages de progression sur la sortie d'erreur.
+.TP
+.BR \-V ", " \-\-version
+Affiche la version puis quitte.
+.SH EXEMPLES
+Lancer l'interface :
+.PP
+.nf
+    sudo orbite-scan
+.fi
+.PP
+Analyser le sous-réseau local, sortie en tableau :
+.PP
+.nf
+    sudo orbite-scan scan
+.fi
+.PP
+Analyser un sous-réseau précis et produire du JSON :
+.PP
+.nf
+    sudo orbite-scan scan -t 192.168.1.0/24 -o json
+.fi
+.PP
+Enregistrer les résultats dans un fichier CSV :
+.PP
+.nf
+    sudo orbite-scan scan -o csv -f resultats.csv
+.fi
+.SH FICHIERS
+.TP
+.I /usr/share/orbite-scan/core/oui.csv
+Base OUI IEEE locale utilisée pour identifier le fabricant d'une adresse MAC.
+.TP
+.I /usr/share/orbite-scan/ui/assets/
+Ressources de l'interface, dont le moteur de topologie vis.js.
+.SH NOTES
+N'utilisez Orbite Scan que sur des réseaux qui vous appartiennent ou pour
+lesquels vous avez une autorisation écrite explicite.
+Un scan réseau non autorisé peut être illégal.
+.SH LICENCE
+Licence publique générale GNU, version 3 ou ultérieure.
+.SH AUTEUR
+Akamasoft
+.br
+.UR https://github.com/akamasoft/Orbit-Scan
+.UE
+.br
+Licence GNU GPL-3.0 ou ultérieure. Comprend du code de L0p4Map, © HaxL0p4.
+.SH VOIR AUSSI
+.BR nmap (1),
+.BR wireshark (1),
+.BR arp-scan (1)

@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background-color: #06110c; overflow: hidden; color: #e7fff2; font-family: "Liberation Sans", "Noto Sans", "Segoe UI", sans-serif; }
+  #graph { width: 100vw; height: 100vh; }
+
+  .vis-tooltip {
+    background-color: #0c1c14 !important;
+    border: 1px solid #1c4a34 !important;
+    border-radius: 12px !important;
+    color: #e7fff2 !important;
+    font-family: "Liberation Sans", "Noto Sans", "Segoe UI", sans-serif !important;
+    font-size: 12px !important;
+    padding: 12px 14px !important;
+    box-shadow: none !important;
+    max-width: 280px !important;
+  }
+
+  #legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: rgba(12, 28, 20, 0.94);
+    border: 1px solid #1c4a34;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #d8ffe8;
+    z-index: 100;
+    pointer-events: none;
+  }
+  #legend .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  #legend-devices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 16px;
+  }
+  #legend img.icon {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  #legend .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid;
+    flex-shrink: 0;
+  }
+  #legend .edge-sample {
+    width: 22px;
+    height: 2px;
+    flex-shrink: 0;
+  }
+  #legend .sep {
+    border-top: 1px solid #1c4a34;
+    margin: 8px 0;
+  }
+
+  #counter {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    font-size: 12px;
+    color: #9dccb0;
+    pointer-events: none;
+  }
+
+  #topo-panel {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    background: rgba(12, 28, 20, 0.94);
+    border: 1px solid #1c4a34;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #d8ffe8;
+    z-index: 100;
+    pointer-events: none;
+    min-width: 210px;
+  }
+  #topo-panel .tp-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 4px;
+  }
+  #topo-panel .tp-label { color: #9dccb0; }
+  #topo-panel .tp-value { color: #e7fff2; text-align: right; font-size: 12px; }
+
+  #layout-btn {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: #0c1c14;
+    border: 1px solid #1c4a34;
+    border-radius: 999px;
+    color: #e7fff2;
+    font-family: "Liberation Sans", "Noto Sans", "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+    cursor: pointer;
+    z-index: 100;
+    user-select: none;
+  }
+  #layout-btn:hover { border-color: #00ff99; color: #00ff99; }
+  #layout-btn.active { border-color: #00ff99; color: #00ff99; background: #0e2418; }
+</style>
+<link rel="stylesheet" href="vis-network.min.css">
+<script src="vis-network.min.js"></script>
+</head>
+<body>
+<div id="graph"></div>
+
+<div id="topo-panel">
+  <div class="tp-row"><span class="tp-label">SOUS-RÉSEAU</span><span class="tp-value" id="tp-subnet">—</span></div>
+  <div class="tp-row"><span class="tp-label">PASSERELLE</span><span class="tp-value" id="tp-gateway">—</span></div>
+  <div class="tp-row"><span class="tp-label">APPAREILS</span><span class="tp-value" id="tp-devices">0</span></div>
+  <div class="tp-row"><span class="tp-label">INTERMÉDIAIRES</span><span class="tp-value" id="tp-intermediates">0</span></div>
+</div>
+
+<div id="legend">
+  <div id="legend-devices"></div>
+  <div class="item" style="margin-top:6px"><div class="dot" style="border-color:#b45309;background:#fff4d6"></div> Service embarqué</div>
+  <div class="sep"></div>
+  <div class="item">
+    <div class="edge-sample" style="background:repeating-linear-gradient(90deg,#8a7a6a 0,#8a7a6a 4px,transparent 4px,transparent 8px)"></div>
+    Liaison montante
+  </div>
+  <div class="item">
+    <div class="edge-sample" style="background:#00ff99;height:2px"></div>
+    Dorsale
+  </div>
+  <div class="item">
+    <div class="edge-sample" style="background:#1c4a34;height:1px"></div>
+    Lien client
+  </div>
+</div>
+
+<div id="counter">0 appareil</div>
+
+<div id="layout-btn" class="active" onclick="toggleLayout()">Hiérarchique</div>
+
+<script>
+let network = null;
+let currentTopology = null;
+let hierarchicalMode = true;
+let subnetsForDraw = [];
+
+function toggleLayout() {
+  hierarchicalMode = !hierarchicalMode;
+  const btn = document.getElementById("layout-btn");
+  btn.textContent = hierarchicalMode ? "Hiérarchique" : "Force Atlas";
+  btn.className = hierarchicalMode ? "active" : "";
+  if (currentTopology) _renderTopology(currentTopology);
+}
+
+function deviceIcon(name) {
+  return "devices/" + name + ".svg";
+}
+
+function getRoleStyle(role) {
+  const styles = {
+    internet:  { bg: "#15202b", border: "#9fb0c3", size: 46, label: "INTERNET", icon: deviceIcon("internet") },
+    gateway:   { bg: "#123028", border: "#00ff99", size: 52, label: "PASSERELLE", icon: deviceIcon("gateway") },
+    router:    { bg: "#102833", border: "#3ec6e0", size: 48, label: "ROUTEUR", icon: deviceIcon("router") },
+    ap:        { bg: "#3a2a10", border: "#f0a202", size: 46, label: "POINT D'ACCÈS", icon: deviceIcon("ap") },
+    switch:    { bg: "#102433", border: "#3aa0ff", size: 46, label: "COMMUTATEUR", icon: deviceIcon("switch") },
+    pc:        { bg: "#1a1e36", border: "#7a86ff", size: 46, label: "PC", icon: deviceIcon("pc") },
+    laptop:    { bg: "#1c2430", border: "#d5dde6", size: 46, label: "PORTABLE", icon: deviceIcon("laptop") },
+    apple:     { bg: "#1c2430", border: "#d5dde6", size: 46, label: "APPLE", icon: deviceIcon("laptop") },
+    phone:     { bg: "#2a1824", border: "#ff6aa3", size: 46, label: "TÉLÉPHONE", icon: deviceIcon("phone") },
+    mobile:    { bg: "#2a1824", border: "#ff6aa3", size: 46, label: "TÉLÉPHONE", icon: deviceIcon("phone") },
+    tablet:    { bg: "#241c30", border: "#c9a0ff", size: 46, label: "TABLETTE", icon: deviceIcon("tablet") },
+    server:    { bg: "#162033", border: "#6d8cff", size: 48, label: "SERVEUR", icon: deviceIcon("server") },
+    printer:   { bg: "#1c2633", border: "#9fb0c3", size: 46, label: "IMPRIMANTE", icon: deviceIcon("printer") },
+    raspberry: { bg: "#1a3324", border: "#e05a5a", size: 46, label: "RASPBERRY PI", icon: deviceIcon("raspberry") },
+    vm:        { bg: "#1a1028", border: "#b07cff", size: 46, label: "MACHINE VIRTUELLE", icon: deviceIcon("vm") },
+    unknown:   { bg: "#1a222c", border: "#8b9cb3", size: 44, label: "INCONNU", icon: deviceIcon("unknown") },
+  };
+  return styles[role] || styles.unknown;
+}
+
+function hostToken(hostname, token) {
+  return hostname.replace(/_/g, "-").replace(/\./g, "-").split("-").indexOf(token) !== -1;
+}
+
+function getRole(device) {
+  const ip = device.ip || "";
+  const vendor = (device.vendor || "").toLowerCase();
+  const hostname = (device.hostname || "").toLowerCase();
+  const last = ip.split(".").pop();
+
+  if (/pixel|galaxy|iphone|android|phone|oneplus|redmi|poco|smartphone/.test(hostname)) return "phone";
+  if (/ipad|tablet|kindle/.test(hostname)) return "tablet";
+  if (/macbook|laptop|notebook|thinkpad|chromebook/.test(hostname)) return "laptop";
+  if (/printer|laserjet|deskjet|officejet|print/.test(hostname)) return "printer";
+  if (/imac|macmini|mac-mini|mac_mini/.test(hostname)) return "pc";
+  if (hostname.includes("raspberry") || hostToken(hostname, "rpi") || vendor.includes("raspberry")) return "raspberry";
+  if (/proxmox|virtualbox|vmware/.test(hostname) || vendor.includes("vmware") || vendor.includes("virtualbox") || vendor.includes("proxmox")) return "vm";
+  if (/server|synology|qnap|truenas|freenas|-srv/.test(hostname) || hostToken(hostname, "nas")) return "server";
+  if (hostname === "gateway" || hostname === "_gateway" || device.role === "gateway") return "gateway";
+  if ((last === "1" || last === "254") && (!device.role || device.role === "unknown")) return "gateway";
+
+  if (device.role && device.role !== "unknown") {
+    if (device.role === "mobile") return "phone";
+    return device.role;
+  }
+
+  if (hostname.includes("switch")) return "switch";
+  if (hostname.includes("router")) return "router";
+  if (hostToken(hostname, "ap") || hostname.includes("wifi")) return "ap";
+  if (vendor.includes("cisco") || vendor.includes("mikrotik") || vendor.includes("ubiquiti") || vendor.includes("juniper") || vendor.includes("fortinet")) return "router";
+  if (vendor.includes("tp-link") || vendor.includes("netgear") || vendor.includes("dlink") || vendor.includes("linksys") || vendor.includes("tenda") || vendor.includes("zyxel") || vendor.includes("aruba")) return "ap";
+  if (hostname.includes("macbook")) return "laptop";
+  if (vendor.includes("apple")) return "apple";
+  if (vendor.includes("samsung") || vendor.includes("xiaomi") || vendor.includes("oneplus") || hostname.includes("android")) return "phone";
+  if (vendor.includes("intel") || vendor.includes("dell") || vendor.includes("hp") || vendor.includes("lenovo") || vendor.includes("asus") || hostname.includes("desktop") || hostname.includes("linux") || hostname.includes("windows")) return "pc";
+  return "unknown";
+}
+
+function renderLegend() {
+  const items = [
+    ["internet", "Internet"],
+    ["gateway", "Passerelle"],
+    ["router", "Routeur"],
+    ["ap", "Point d'accès"],
+    ["switch", "Commutateur"],
+    ["pc", "PC"],
+    ["laptop", "Portable"],
+    ["phone", "Téléphone"],
+    ["tablet", "Tablette"],
+    ["server", "Serveur"],
+    ["printer", "Imprimante"],
+    ["raspberry", "Raspberry Pi"],
+    ["vm", "Machine virtuelle"],
+    ["unknown", "Inconnu"],
+  ];
+  const box = document.getElementById("legend-devices");
+  if (!box) return;
+  box.innerHTML = items.map(function(item) {
+    const style = getRoleStyle(item[0]);
+    return '<div class="item"><img class="icon" src="' + style.icon + '" alt="">' + item[1] + "</div>";
+  }).join("");
+}
+
+function makeTooltip(role, device, style) {
+  const el = document.createElement("div");
+  const ports = (device.open_ports && device.open_ports.length) ? device.open_ports.join(", ") : "—";
+  const ttl = device.ttl != null ? device.ttl : "—";
+  const osMap = {
+    "linux/macos": "Linux / macOS",
+    "windows": "Windows",
+    "network_device": "équipement réseau",
+  };
+  const osHint = osMap[device.os_hint] || (device.os_hint && device.os_hint !== "unknown" ? device.os_hint : "—");
+  const snmpRow = device.snmp_desc
+    ? `<div style="color:#9dccb0;margin-bottom:2px;margin-top:2px">SNMP</div>
+       <div style="color:#d8ffe8;margin-bottom:0;font-size:10px;word-break:break-all">${device.snmp_desc.substring(0, 80)}${device.snmp_desc.length > 80 ? "…" : ""}</div>`
+    : "";
+  const embeddedRow = device.embedded_device
+    ? `<div style="color:#8a5a00;margin-bottom:2px;margin-top:2px">SERVICE EMBARQUÉ</div>
+       <div style="color:#8a5a00;margin-bottom:0;font-size:10px">${device.embedded_device} — livré avec des identifiants par défaut connus, à vérifier manuellement</div>`
+    : "";
+  el.innerHTML = `
+    <div style="color:${style.border};font-weight:bold;margin-bottom:6px;letter-spacing:1px">${style.label}</div>
+    <div style="color:#9dccb0;margin-bottom:2px">IP</div>
+    <div style="color:#d8ffe8;margin-bottom:6px">${device.ip}</div>
+    <div style="color:#9dccb0;margin-bottom:2px">MAC</div>
+    <div style="color:#d8ffe8;margin-bottom:6px">${device.mac}</div>
+    <div style="color:#9dccb0;margin-bottom:2px">FABRICANT</div>
+    <div style="color:#d8ffe8;margin-bottom:6px">${device.vendor || "Inconnu"}</div>
+    <div style="color:#9dccb0;margin-bottom:2px">HÔTE</div>
+    <div style="color:#d8ffe8;margin-bottom:6px">${device.hostname}</div>
+    <div style="display:flex;gap:16px;margin-bottom:6px">
+      <div><div style="color:#9dccb0;margin-bottom:2px">TTL</div><div style="color:#d8ffe8">${ttl}</div></div>
+      <div><div style="color:#9dccb0;margin-bottom:2px">INDICE OS</div><div style="color:#d8ffe8">${osHint}</div></div>
+    </div>
+    <div style="color:#9dccb0;margin-bottom:2px">PORTS OUVERTS</div>
+    <div style="color:#d8ffe8;margin-bottom:${(snmpRow || embeddedRow) ? "6px" : "0"}">${ports}</div>
+    ${embeddedRow}
+    ${snmpRow}
+  `;
+  return el;
+}
+
+function makeInternetTooltip() {
+  const el = document.createElement("div");
+  el.innerHTML = `<div  style="color:#d8ffe8;font-weight:bold;letter-spacing:1px">INTERNET</div><div style="color:#9dccb0;font-size:10px;margin-top:4px">Liaison vers le réseau externe</div>`;
+  return el;
+}
+
+function getEdgeStyle(type) {
+  if (type === "uplink") return {
+    dashes: [6, 4],
+    color: { color: "#222222", highlight: "#444444", hover: "#333333" },
+    arrows: { to: { enabled: true, scaleFactor: 0.4, type: "arrow" } },
+    width: 1,
+    smooth: { type: "curvedCW", roundness: 0.2 },
+  };
+  if (type === "backbone") return {
+    dashes: false,
+    color: { color: "#00ff9988", highlight: "#00ff99", hover: "#7dffc3" },
+    arrows: { to: { enabled: true, scaleFactor: 0.5, type: "arrow" } },
+    width: 2,
+    smooth: { type: "curvedCW", roundness: 0.15 },
+  };
+  return {
+    dashes: false,
+    color: { color: "#1c4a34", highlight: "#00ff99", hover: "#2d8a5e" },
+    arrows: { to: { enabled: true, scaleFactor: 0.35, type: "arrow" } },
+    width: 1,
+    smooth: { type: "curvedCW", roundness: 0.12 },
+  };
+}
+
+function buildOptions() {
+  if (hierarchicalMode) {
+    return {
+      nodes: {
+        shape: "image",
+        font: { color: "#d8ffe8", face: "Liberation Sans, Segoe UI, sans-serif", size: 12 },
+        borderWidth: 0,
+        shadow: { enabled: false },
+      },
+      edges: { shadow: false },
+      layout: {
+        hierarchical: {
+          enabled: true,
+          direction: "UD",
+          sortMethod: "directed",
+          levelSeparation: 190,
+          nodeSpacing: 180,
+          treeSpacing: 160,
+          blockShifting: true,
+          edgeMinimization: true,
+          parentCentralization: true,
+        },
+      },
+      physics: {
+        enabled: false,
+        stabilization: { enabled: false },
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 80,
+        zoomView: true,
+        dragView: true,
+        dragNodes: true,
+      },
+    };
+  }
+  return {
+    nodes: {
+      shape: "image",
+      font: { color: "#d8ffe8", face: "Liberation Sans, Segoe UI, sans-serif", size: 12 },
+      borderWidth: 0,
+      shadow: { enabled: false },
+    },
+    edges: { shadow: false },
+    layout: { hierarchical: { enabled: false } },
+    physics: {
+      enabled: true,
+      solver: "forceAtlas2Based",
+      forceAtlas2Based: {
+        gravitationalConstant: -70,
+        centralGravity: 0.006,
+        springLength: 150,
+        springConstant: 0.05,
+        damping: 0.9,
+        avoidOverlap: 0.5,
+      },
+      stabilization: { iterations: 300, updateInterval: 25 },
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 80,
+      zoomView: true,
+      dragView: true,
+      dragNodes: true,
+    },
+  };
+}
+
+function updateTopoPanel(subnet, gateway, deviceCount, intermediateCount) {
+  document.getElementById("tp-subnet").textContent = subnet || "—";
+  document.getElementById("tp-gateway").textContent = gateway || "—";
+  document.getElementById("tp-devices").textContent = deviceCount;
+  document.getElementById("tp-intermediates").textContent = intermediateCount;
+}
+
+function _drawSubnetBoxes(ctx) {
+  if (!hierarchicalMode || subnetsForDraw.length === 0) return;
+  subnetsForDraw.forEach(function(snet) {
+    const ips = snet.devices || [];
+    if (ips.length < 1) return;
+    const positions = ips.map(function(ip) {
+      try { return network.getPosition(ip); } catch(e) { return null; }
+    }).filter(function(p) { return p !== null; });
+    if (positions.length < 1) return;
+
+    const xs = positions.map(function(p) { return p.x; });
+    const ys = positions.map(function(p) { return p.y; });
+    const pad = 55;
+    const x1 = Math.min.apply(null, xs) - pad;
+    const y1 = Math.min.apply(null, ys) - pad;
+    const x2 = Math.max.apply(null, xs) + pad;
+    const y2 = Math.max.apply(null, ys) + pad;
+
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "#00ff9933";
+    ctx.fillStyle = "#00ff990c";
+    ctx.lineWidth = 1;
+    const r = 10;
+    ctx.beginPath();
+    ctx.moveTo(x1 + r, y1);
+    ctx.lineTo(x2 - r, y1);
+    ctx.arcTo(x2, y1, x2, y1 + r, r);
+    ctx.lineTo(x2, y2 - r);
+    ctx.arcTo(x2, y2, x2 - r, y2, r);
+    ctx.lineTo(x1 + r, y2);
+    ctx.arcTo(x1, y2, x1, y2 - r, r);
+    ctx.lineTo(x1, y1 + r);
+    ctx.arcTo(x1, y1, x1 + r, y1, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.font = "9px monospace";
+    ctx.fillStyle = "#7dffc3";
+    ctx.fillText(snet.network || "", x1 + 6, y1 + 13);
+    ctx.restore();
+  });
+}
+
+function _renderTopology(topology) {
+  const devices = topology.devices || [];
+  const topoEdges = topology.edges || [];
+  const intermediates = new Set(topology.intermediates || []);
+  const gatewayIp = topology.gateway || null;
+  const subnet = topology.subnet || null;
+  const subnets = topology.subnets || [];
+
+  subnetsForDraw = subnets;
+
+  const deviceMap = {};
+  devices.forEach(function(d) { deviceMap[d.ip] = d; });
+
+  const levelMap = {};
+  levelMap["internet"] = 0;
+  if (gatewayIp) levelMap[gatewayIp] = 1;
+  intermediates.forEach(function(ip) { levelMap[ip] = 2; });
+  devices.forEach(function(d) {
+    if (!(d.ip in levelMap)) levelMap[d.ip] = 3;
+  });
+
+  const nodes = new vis.DataSet();
+  const edgesDS = new vis.DataSet();
+
+  const internetStyle = getRoleStyle("internet");
+  nodes.add({
+    id: "internet",
+    label: "INTERNET",
+    level: 0,
+    shape: "image",
+    image: internetStyle.icon,
+    size: internetStyle.size,
+    font: { color: "#6f6256", size: 11, face: "Liberation Sans, Segoe UI, sans-serif" },
+    title: makeInternetTooltip(),
+  });
+
+  devices.forEach(function(device) {
+    const role = getRole(device);
+    const style = getRoleStyle(role);
+    const hostname = (device.hostname && device.hostname !== device.ip) ? device.hostname : "";
+    const level = (levelMap[device.ip] !== undefined) ? levelMap[device.ip] : 3;
+    const isHighLevel = level <= 2;
+    const flagged = !!device.embedded_device;
+    const borderColor = flagged ? "#ffcc00" : style.border;
+    const label = device.ip + (hostname ? "\n" + hostname : "") + (flagged ? "\n⚠ " + device.embedded_device : "");
+
+    nodes.add({
+      id: device.ip,
+      label: label,
+      title: makeTooltip(role, device, style),
+      level: level,
+      shape: "image",
+      image: style.icon,
+      size: style.size,
+      font: {
+        color: flagged ? "#ffe0a3" : (role === "gateway" ? "#00ff99" : "#d8ffe8"),
+        size: 11,
+        bold: role === "gateway" || flagged,
+        face: "Liberation Sans, Segoe UI, sans-serif",
+      },
+    });
+  });
+
+  if (topoEdges.length === 0 && devices.length > 0) {
+    const fallbackGw = gatewayIp || devices[0].ip;
+    edgesDS.add({ id: "gw-internet", from: fallbackGw, to: "internet", ...getEdgeStyle("uplink") });
+    devices.forEach(function(d, i) {
+      if (d.ip === fallbackGw) return;
+      edgesDS.add({ id: "fb-" + i, from: d.ip, to: fallbackGw, ...getEdgeStyle("client") });
+    });
+  } else {
+    topoEdges.forEach(function(edge, i) {
+      const srcOk = edge.src === "internet" || !!deviceMap[edge.src];
+      const dstOk = edge.dst === "internet" || !!deviceMap[edge.dst];
+      if (!srcOk || !dstOk) return;
+      edgesDS.add({ id: "e-" + i, from: edge.src, to: edge.dst, ...getEdgeStyle(edge.type || "client") });
+    });
+  }
+
+  document.getElementById("counter").textContent =
+    devices.length + " appareil" + (devices.length !== 1 ? "s" : "");
+  updateTopoPanel(subnet, gatewayIp, devices.length, intermediates.size);
+
+  const container = document.getElementById("graph");
+  if (network) network.destroy();
+
+  network = new vis.Network(container, { nodes: nodes, edges: edgesDS }, buildOptions());
+
+  network.on("afterDrawing", function(ctx) { _drawSubnetBoxes(ctx); });
+  network.once("stabilizationIterationsDone", function() {
+    network.setOptions({ physics: false });
+    keepCentered();
+  });
+  keepCentered();
+
+  network.on("doubleClick", function(params) {
+    if (params.nodes.length === 0) return;
+    const nodeId = params.nodes[0];
+    if (nodeId === "internet") return;
+    const node = nodes.get(nodeId);
+    if (!node) return;
+    const ipLine = node.label ? node.label.split("\n")[0] : "";
+    const name = prompt("Nom personnalisé pour " + ipLine + " :", node._customName || "");
+    if (name === null) return;
+    node._customName = name;
+    nodes.update({ id: nodeId, label: name ? (ipLine + "\n " + name) : ipLine });
+  });
+
+}
+
+function centerGraph() {
+  if (!network) return;
+  const el = document.getElementById("graph");
+  if (!el || el.clientWidth < 80 || el.clientHeight < 80) return;
+  const ids = network.body && network.body.data && network.body.data.nodes
+    ? network.body.data.nodes.getIds()
+    : [];
+  if (!ids.length) return;
+  network.fit({ nodes: ids, animation: false });
+}
+
+function keepCentered() {
+  centerGraph();
+  setTimeout(centerGraph, 80);
+  setTimeout(centerGraph, 280);
+}
+
+if (window.ResizeObserver) {
+  const graphEl = document.getElementById("graph");
+  let lastSize = "";
+  new ResizeObserver(function() {
+    const key = graphEl.clientWidth + "x" + graphEl.clientHeight;
+    if (key === lastSize) return;
+    lastSize = key;
+    centerGraph();
+  }).observe(graphEl);
+}
+
+function updateGraph(topologyJson) {
+  let topology = topologyJson;
+  if (typeof topologyJson === "string") {
+    try {
+      topology = JSON.parse(topologyJson);
+    } catch(e) {
+      return;
+    }
+  }
+  if (!topology || typeof topology !== "object") {
+    return;
+  }
+
+  if (Array.isArray(topology)) {
+    topology = {
+      devices: topology,
+      gateway: null,
+      subnet: null,
+      subnets: [],
+      edges: [],
+      intermediates: [],
+    };
+  }
+
+  currentTopology = topology;
+  _renderTopology(topology);
+}
+
+renderLegend();
+</script>
+</body>
+</html>

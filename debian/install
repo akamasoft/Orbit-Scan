@@ -1,0 +1,4 @@
+__main__.py usr/share/orbite-scan
+core/ usr/share/orbite-scan
+ui/ usr/share/orbite-scan
+debian/orbite-scan.sh usr/bin/orbite-scan
